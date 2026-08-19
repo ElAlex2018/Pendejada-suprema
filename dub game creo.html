@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Choicer Voicer - Pro Edition</title>
+  <style>
+    :root {
+      --bg: #0b0d14;
+      --panel: #161926;
+      --accent: #ff0055;
+      --cyan: #00f0ff;
+      --green: #00ff66;
+      --text: #e0e6ed;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+
+    h1 { color: var(--cyan); text-shadow: 0 0 15px rgba(0, 240, 255, 0.4); margin-bottom: 20px; font-weight: 800; letter-spacing: 1px; }
+
+    .game-container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
+    .card { background: var(--panel); border-radius: 12px; padding: 20px; border: 1px solid #23283b; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+
+    /* Modal / Botón de Permiso */
+    .permission-bar { background: rgba(0,240,255,0.1); border: 1px solid var(--cyan); padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+
+    /* Pantalla Media */
+    .screen-box { width: 100%; height: 380px; background: #000; border-radius: 8px; overflow: hidden; position: relative; display: flex; justify-content: center; align-items: center; border: 1px solid #333; }
+    .screen-box video, .screen-box iframe { width: 100%; height: 100%; object-fit: contain; }
+
+    /* Visualizadores de Audio */
+    .vis-container { margin-top: 10px; }
+    .vis-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+    canvas { width: 100%; height: 60px; background: #08090f; border-radius: 6px; display: block; }
+
+    /* Subtítulos */
+    .subtitles-box { background: #08090f; border-left: 4px solid var(--cyan); padding: 12px; border-radius: 4px; min-height: 50px; font-size: 1.1rem; color: #fff; margin-top: 10px; font-style: italic; }
+
+    /* Indicador de estado de habla */
+    .vad-indicator { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #444; margin-right: 8px; }
+    .vad-indicator.active { background: var(--green); box-shadow: 0 0 10px var(--green); }
+
+    /* Inputs y Botones */
+    .controls { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+    .input-group { display: flex; gap: 10px; }
+    input[type="text"] { flex: 1; padding: 12px; border-radius: 6px; border: 1px solid #2e344e; background: #0a0c14; color: #fff; outline: none; }
+    input[type="text"]:focus { border-color: var(--cyan); }
+    
+    button { padding: 12px 20px; border: none; border-radius: 6px; background: var(--accent); color: white; font-weight: bold; cursor: pointer; transition: 0.2s; text-transform: uppercase; }
+    button:hover { opacity: 0.9; transform: translateY(-1px); }
+    button:disabled { background: #444; cursor: not-allowed; opacity: 0.6; }
+    .btn-cyan { background: var(--cyan); color: #000; }
+
+    /* Jurado */
+    .judges-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px; }
+    .judge-card { background: #0f111b; border-radius: 8px; padding: 15px; text-align: center; border: 1px solid #23283b; }
+    .score-badge { font-size: 1.4rem; font-weight: bold; color: var(--cyan); margin-top: 5px; }
+  </style>
+</head>
+<body>
+
+  <h1>🎙️ The Choicer Voicer - Pro Edition</h1>
+
+  <div class="game-container">
+
+    <div class="permission-bar" id="permBar">
+      <span>🔑 Se requiere permiso del micrófono para evaluar y transcribir tu voz.</span>
+      <button class="btn-cyan" onclick="requestMicPermission()">Conceder Permiso</button>
+    </div>
+
+    <div class="card">
+      <div class="screen-box" id="mediaDisplay">
+        <p style="color: #666;">Carga un video/audio para empezar</p>
+      </div>
+      
+      <div class="vis-container">
+        <div class="vis-label">Frecuencia del Video / Audio Base</div>
+        <canvas id="mediaCanvas"></canvas>
+      </div>
+
+      <div class="controls">
+        <div class="input-group">
+          <input type="text" id="mediaUrl" placeholder="Link de YouTube, Instagram Reel o enlace directo MP4/MP3">
+          <button onclick="loadMedia()">Cargar Media</button>
+        </div>
+        <div style="font-size: 0.85rem; color: #aaa;">
+          O archivo local: <input type="file" id="fileInput" accept="video/*,audio/*" onchange="loadFile(event)">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Tu Micrófono y Subtítulos en Vivo</h3>
+      
+      <div style="margin-top: 10px; font-size: 0.9rem; display: flex; align-items: center;">
+        <span class="vad-indicator" id="vadDot"></span>
+        <span id="vadStatus">Micrófono inactivo / Esperando que hables...</span>
+      </div>
+
+      <div class="subtitles-box" id="subtitles">Las palabras habladas aparecerán aquí...</div>
+
+      <div class="vis-container">
+        <div class="vis-label">Intensidad de tu Voz (Frecuencias)</div>
+        <canvas id="micCanvas"></canvas>
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 15px;">
+        <button id="recBtn" class="btn-cyan" onclick="toggleSmartRecording()" disabled>🔴 Activar Grabación Inteligente</button>
+        <button onclick="evaluateVoice()">🧑‍⚖️ Evaluar Imitación</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Evaluación del Jurado</h3>
+      <div class="judges-grid">
+        <div class="judge-card">
+          <p><strong>🤖 Robo-Pitch</strong></p>
+          <div class="score-badge" id="score1">-</div>
+        </div>
+        <div class="judge-card">
+          <p><strong>🤡 Meme-Master</strong></p>
+          <div class="score-badge" id="score2">-</div>
+        </div>
+        <div class="judge-card">
+          <p><strong>🎼 Maestro Tono</strong></p>
+          <div class="score-badge" id="score3">-</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let micStream = null;
+    let audioCtx = null;
+    let micAnalyser = null;
+    let mediaAnalyser = null;
+    let speechRecognition = null;
+    let mediaElement = null;
+
+    let isSmartRecording = false;
+    let isSpeaking = false;
+    let speechThreshold = 25; // Umbral de detección de voz
+
+    // --- 1. SOLICITAR PERMISO DE MICRÓFONO ---
+    async function requestMicPermission() {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        document.getElementById('permBar').style.display = 'none';
+        document.getElementById('recBtn').disabled = false;
+        
+        setupAudioContext();
+        initSpeechRecognition();
+        alert("Permiso concedido exitosamente.");
+      } catch (err) {
+        alert("No se pudo acceder al micrófono: " + err.message);
+      }
+    }
+
+    // --- CONFIGURACIÓN DE WEB AUDIO API ---
+    function setupAudioContext() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Conectar Micrófono
+      micAnalyser = audioCtx.createAnalyser();
+      micAnalyser.fftSize = 128;
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      micSource.connect(micAnalyser);
+
+      drawVisualizer(micAnalyser, document.getElementById('micCanvas'), '#00f0ff');
+    }
+
+    // --- 2. DIBUJAR RAYITAS DE FRECUENCIA (CANVAS) ---
+    function drawVisualizer(analyserNode, canvas, barColor) {
+      const ctx = canvas.getContext('2d');
+      const bufferLength = analyserNode.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      function renderFrame() {
+        requestAnimationFrame(renderFrame);
+        analyserNode.getByteFrequencyData(dataArray);
+
+        ctx.fillStyle = '#08090f';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const barWidth = (canvas.width / bufferLength) * 2;
+        let x = 0;
+
+        let totalVolume = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          const barHeight = (dataArray[i] / 255) * canvas.height;
+          totalVolume += dataArray[i];
+
+          ctx.fillStyle = barColor;
+          ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+          x += barWidth;
+        }
+
+        // Lógica de detección de voz (VAD) para la grabación inteligente
+        if (analyserNode === micAnalyser && isSmartRecording) {
+          const avgVolume = totalVolume / bufferLength;
+          handleVAD(avgVolume);
+        }
+      }
+      renderFrame();
+    }
+
+    // --- DETECCIÓN DE ACTIVIDAD DE VOZ (VAD) ---
+    function handleVAD(avgVolume) {
+      const vadDot = document.getElementById('vadDot');
+      const vadStatus = document.getElementById('vadStatus');
+
+      if (avgVolume > speechThreshold) {
+        if (!isSpeaking) {
+          isSpeaking = true;
+          vadDot.classList.add('active');
+          vadStatus.innerText = "🗣️ Hablando - Grabando segmento...";
+        }
+      } else {
+        if (isSpeaking) {
+          isSpeaking = false;
+          vadDot.classList.remove('active');
+          vadStatus.innerText = "🤫 Silencio - Grabación en pausa";
+        }
+      }
+    }
+
+    // --- 3. RECONOCIMIENTO DE VOZ Y SUBTÍTULOS ---
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        document.getElementById('subtitles').innerText = "Tu navegador no soporta reconmiento de voz (Web Speech API).";
+        return;
+      }
+
+      speechRecognition = new SpeechRecognition();
+      speechRecognition.continuous = true;
+      speechRecognition.interimResults = true;
+      speechRecognition.lang = 'es-ES';
+
+      speechRecognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        document.getElementById('subtitles').innerText = transcript || "Escuchando...";
+      };
+    }
+
+    // TOGGLE GRABACIÓN INTELIGENTE
+    function toggleSmartRecording() {
+      if (!audioCtx) return;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      isSmartRecording = !isSmartRecording;
+      const btn = document.getElementById('recBtn');
+
+      if (isSmartRecording) {
+        btn.innerText = "⏹️ Detener Grabación Inteligente";
+        btn.style.background = "#555";
+        if (speechRecognition) speechRecognition.start();
+      } else {
+        btn.innerText = "🔴 Activar Grabación Inteligente";
+        btn.style.background = "var(--cyan)";
+        if (speechRecognition) speechRecognition.stop();
+        document.getElementById('vadDot').classList.remove('active');
+        document.getElementById('vadStatus').innerText = "Inactivo";
+      }
+    }
+
+    // --- CARGAR MEDIA Y EXTRAER AUDIO PARA VISUALIZAR ---
+    function loadMedia() {
+      const url = document.getElementById('mediaUrl').value.trim();
+      const display = document.getElementById('mediaDisplay');
+      display.innerHTML = '';
+
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        let videoId = url.includes('youtu.be') ? url.split('/').pop().split('?')[0] : new URLSearchParams(new URL(url).search).get('v');
+        display.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1" allow="autoplay; encrypted-media"></iframe>`;
+      } else if (url.includes('instagram.com')) {
+        let cleanUrl = url.split('?')[0];
+        if (!cleanUrl.endsWith('/')) cleanUrl += '/';
+        display.innerHTML = `<iframe src="${cleanUrl}embed"></iframe>`;
+      } else {
+        mediaElement = document.createElement('video');
+        mediaElement.src = url;
+        mediaElement.controls = true;
+        mediaElement.crossOrigin = "anonymous";
+        display.appendChild(mediaElement);
+        connectMediaAudio(mediaElement);
+      }
+    }
+
+    function loadFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const display = document.getElementById('mediaDisplay');
+      display.innerHTML = '';
+
+      mediaElement = document.createElement(file.type.startsWith('video/') ? 'video' : 'audio');
+      mediaElement.src = URL.createObjectURL(file);
+      mediaElement.controls = true;
+      display.appendChild(mediaElement);
+      connectMediaAudio(mediaElement);
+    }
+
+    function connectMediaAudio(element) {
+      if (!audioCtx) setupAudioContext();
+      try {
+        mediaAnalyser = audioCtx.createAnalyser();
+        mediaAnalyser.fftSize = 128;
+        const source = audioCtx.createMediaElementSource(element);
+        source.connect(mediaAnalyser);
+        mediaAnalyser.connect(audioCtx.destination);
+        
+        drawVisualizer(mediaAnalyser, document.getElementById('mediaCanvas'), '#ff0055');
+      } catch(e) {
+        console.log("No se pudo conectar el audio directamente por restricciones CORS o de formato.");
+      }
+    }
+
+    // EVALUACIÓN DE JUECES
+    function evaluateVoice() {
+      document.getElementById('score1').innerText = (Math.floor(Math.random() * 30) + 70) + "/100";
+      document.getElementById('score2').innerText = (Math.floor(Math.random() * 40) + 60) + "/100";
+      document.getElementById('score3').innerText = (Math.floor(Math.random() * 35) + 65) + "/100";
+    }
+  </script>
+</body>
+</html>
