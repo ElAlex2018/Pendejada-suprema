@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Estudio de Doblaje Pro</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #3b82f6;
+      --accent-rec: #ef4444;
+      --text: #f8fafc;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+      margin: 0;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 750px;
+      background: var(--card-bg);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+
+    .upload-zone {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .file-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 0.9rem;
+    }
+
+    input[type="file"] {
+      background: #334155;
+      padding: 8px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .subtitle-overlay {
+      position: absolute;
+      bottom: 20px;
+      left: 5%;
+      right: 5%;
+      background: rgba(0, 0, 0, 0.85);
+      color: #fff;
+      padding: 12px;
+      text-align: center;
+      font-size: 1.2rem;
+      font-weight: bold;
+      border-radius: 6px;
+      min-height: 1.5em;
+      pointer-events: none;
+    }
+
+    .controls {
+      margin-top: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .scene-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #334155;
+      padding: 10px;
+      border-radius: 6px;
+    }
+
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button:disabled {
+      background: #64748b;
+      cursor: not-allowed;
+    }
+
+    .btn-rec {
+      background: var(--accent-rec);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px;
+      font-size: 1rem;
+    }
+
+    .recording-indicator {
+      width: 12px;
+      height: 12px;
+      background: #fff;
+      border-radius: 50%;
+    }
+
+    .recording .recording-indicator {
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    .confirm-modal {
+      display: none;
+      background: #0284c7;
+      padding: 12px;
+      border-radius: 6px;
+      text-align: center;
+      margin-top: 10px;
+    }
+
+    .confirm-modal button {
+      background: #fff;
+      color: #000;
+      margin-left: 10px;
+    }
+
+    .audio-preview {
+      margin-top: 10px;
+      background: #334155;
+      padding: 10px;
+      border-radius: 6px;
+    }
+
+    .audio-preview audio {
+      width: 100%;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Estudio de Doblaje por Diálogos</h2>
+
+  <!-- Entradas de Archivos -->
+  <div class="upload-zone">
+    <div class="file-input-group">
+      <label>1. Cargar Vídeo:</label>
+      <input type="file" id="videoInput" accept="video/*">
+    </div>
+    <div class="file-input-group">
+      <label>2. Subtítulos (.srt o .vtt):</label>
+      <input type="file" id="subInput" accept=".srt,.vtt">
+    </div>
+  </div>
+
+  <!-- Reproductor y Subtítulos -->
+  <div class="video-wrapper">
+    <video id="mainVideo" controls></video>
+    <div class="subtitle-overlay" id="subtitleBox">Carga el vídeo y los subtítulos para comenzar...</div>
+  </div>
+
+  <!-- Controles -->
+  <div class="controls">
+    <div class="scene-controls">
+      <button id="prevBtn" disabled>← Diálogo Anterior</button>
+      <span id="sceneTracker">Diálogo: 0 / 0</span>
+      <button id="nextBtn" disabled>Siguiente Diálogo →</button>
+    </div>
+
+    <!-- Botón de Micrófono -->
+    <button id="micBtn" class="btn-rec" disabled>
+      <span class="recording-indicator"></span>
+      <span id="micText">Grabar Diálogo Actual</span>
+    </button>
+  </div>
+
+  <!-- Pausa Automática / Confirmación -->
+  <div class="confirm-modal" id="confirmBox">
+    <span>¡Diálogo completado! ¿Quieres avanzar al siguiente?</span>
+    <button id="confirmNextBtn">Avanzar →</button>
+  </div>
+
+  <!-- Audio grabado -->
+  <div class="audio-preview" id="previewArea" style="display: none;">
+    <strong>Tu última grabación de voz:</strong>
+    <audio id="audioPlayback" controls></audio>
+  </div>
+</div>
+
+<script>
+  let scriptData = [];
+  let currentSceneIndex = 0;
+  let mediaRecorder;
+  let audioChunks = [];
+  let isRecording = false;
+  let audioStream = null;
+
+  // Elementos DOM
+  const videoInput = document.getElementById('videoInput');
+  const subInput = document.getElementById('subInput');
+  const mainVideo = document.getElementById('mainVideo');
+  const subtitleBox = document.getElementById('subtitleBox');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const sceneTracker = document.getElementById('sceneTracker');
+  const micBtn = document.getElementById('micBtn');
+  const micText = document.getElementById('micText');
+  const confirmBox = document.getElementById('confirmBox');
+  const confirmNextBtn = document.getElementById('confirmNextBtn');
+  const previewArea = document.getElementById('previewArea');
+  const audioPlayback = document.getElementById('audioPlayback');
+
+  // Inicializar micrófono al inicio manteniendo la conexión para evitar constantes bloqueos
+  async function initMicrophone() {
+    try {
+      if (!audioStream) {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      micBtn.disabled = false;
+    } catch (err) {
+      alert("Error al acceder al micrófono. Por favor asegúrate de que Chrome no tenga bloqueado el dispositivo de audio en los ajustes del sitio.");
+      console.error("Permiso denegado o error de micro:", err);
+    }
+  }
+
+  // Cargar Vídeo
+  videoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      mainVideo.src = URL.createObjectURL(file);
+      initMicrophone();
+    }
+  });
+
+  // Cargar y Detectar Diálogos desde SRT / VTT
+  subInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      parseSubtitles(evt.target.result);
+      if (scriptData.length > 0) {
+        currentSceneIndex = 0;
+        loadScene(currentSceneIndex);
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // Parser simple de subtítulos SRT/VTT
+  function parseSubtitles(text) {
+    scriptData = [];
+    // Normalizar saltos de línea
+    const regex = /(\d+)\r?\n(\d\d:\d\d:\d\d[.,]\d\d\d) --> (\d\d:\d\d:\d\d[.,]\d\d\d)\r?\n([\s\S]*?)(?=\r?\n\r?\n|\r?\n$|$)/g;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      scriptData.push({
+        start: timeToSeconds(match[2]),
+        end: timeToSeconds(match[3]),
+        text: match[4].replace(/\r?\n/g, ' ')
+      });
+    }
+
+    if(scriptData.length === 0) {
+      alert("No se pudieron detectar diálogos. Asegúrate de subir un archivo .srt con formato válido.");
+    }
+  }
+
+  function timeToSeconds(timeStr) {
+    const p = timeStr.replace(',', '.').split(':');
+    return parseFloat(p[0]) * 3600 + parseFloat(p[1]) * 60 + parseFloat(p[2]);
+  }
+
+  // Controlar Diálogo Actual
+  function loadScene(index) {
+    if (index < 0 || index >= scriptData.length) return;
+    
+    confirmBox.style.display = 'none';
+    const scene = scriptData[index];
+    mainVideo.currentTime = scene.start;
+    subtitleBox.textContent = scene.text;
+    sceneTracker.textContent = `Diálogo: ${index + 1} / ${scriptData.length}`;
+
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index === scriptData.length - 1;
+  }
+
+  // Detectar el fin del diálogo para pausar y pedir confirmación
+  mainVideo.addEventListener('timeupdate', () => {
+    if (scriptData.length === 0) return;
+
+    const currentScene = scriptData[currentSceneIndex];
+    
+    // Si sobrepasa el tiempo final del diálogo actual, pausar vídeo
+    if (mainVideo.currentTime >= currentScene.end && !mainVideo.paused) {
+      mainVideo.pause();
+      
+      if (isRecording) {
+        stopRecording();
+      }
+
+      // Si quedan diálogos, pedir confirmación
+      if (currentSceneIndex < scriptData.length - 1) {
+        confirmBox.style.display = 'block';
+      }
+    }
+  });
+
+  // Botones de Navegación manual
+  prevBtn.addEventListener('click', () => {
+    if (currentSceneIndex > 0) {
+      currentSceneIndex--;
+      loadScene(currentSceneIndex);
+    }
+  });
+
+  nextBtn.addEventListener('click', () => {
+    if (currentSceneIndex < scriptData.length - 1) {
+      currentSceneIndex++;
+      loadScene(currentSceneIndex);
+    }
+  });
+
+  confirmNextBtn.addEventListener('click', () => {
+    currentSceneIndex++;
+    loadScene(currentSceneIndex);
+  });
+
+  // Grabación de Micrófono
+  micBtn.addEventListener('click', () => {
+    if (!isRecording) {
+      startRecording();
+    } else {
+      stopRecording();
+    }
+  });
+
+  function startRecording() {
+    if (!audioStream) return;
+
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(audioStream);
+
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.onstop = () => {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      audioPlayback.src = URL.createObjectURL(audioBlob);
+      previewArea.style.display = 'block';
+    };
+
+    mediaRecorder.start();
+    isRecording = true;
+    micText.textContent = "Detener Grabación";
+    micBtn.classList.add('recording');
+
+    // Reproducir escena automáticamente al empezar a grabar
+    mainVideo.play();
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.stop();
+    }
+    isRecording = false;
+    micText.textContent = "Grabar Diálogo Actual";
+    micBtn.classList.remove('recording');
+  }
+</script>
+
+</body>
+</html>
